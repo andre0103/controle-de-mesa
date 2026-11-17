@@ -12,7 +12,7 @@ html{scroll-padding-top:env(safe-area-inset-top,0px)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;max-width:480px;margin:0 auto;padding:16px}
 .tabs{display:flex;gap:8px;margin-bottom:16px}
-.tab{flex:1;padding:14px;border:1px solid var(--line);background:var(--card);color:var(--mut);border-radius:12px;font-size:16px;font-weight:600}
+.tab{flex:1;padding:14px 4px;border:1px solid var(--line);background:var(--card);color:var(--mut);border-radius:12px;font-size:15px;font-weight:600}
 .tab.on{background:var(--acc);color:var(--acc-t);border-color:var(--acc)}
 .panel{display:none}.panel.on{display:block}
 h1{font-size:20px;margin:0 0 14px}
@@ -32,18 +32,22 @@ input{width:100%;background:transparent;border:0;color:var(--text);font-size:26p
 .result .t{font-size:18px;margin-bottom:12px}
 .qty{display:flex;gap:10px;align-items:center}
 .qty .pm{width:64px;height:64px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:32px;font-weight:700}
-.credit{text-align:center;color:var(--mut);font-size:13px;margin:28px 0 8px}
 .qty input{text-align:center;background:var(--card);border:1px solid var(--line);border-radius:12px;font-size:34px}
+.banner{background:#1f3a2a;border:1px solid var(--acc);color:var(--acc);border-radius:12px;padding:10px 12px;margin-bottom:14px;font-size:14px;display:none}
+pre{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:55vh;overflow:auto;margin:0 0 12px}
+.credit{text-align:center;color:var(--mut);font-size:13px;margin:28px 0 8px}
 </style>
 </head>
 <body>
 <div class="tabs">
   <button class="tab on" data-t="sn">Snooker</button>
   <button class="tab" data-t="si">Sinuca</button>
+  <button class="tab" data-t="hi">Histórico</button>
 </div>
 
 <section id="sn" class="panel on">
   <h1>Snooker · por tempo</h1>
+  <div class="banner" id="banner"></div>
   <label for="rate">Valor da hora</label>
   <div class="field"><span>R$</span><input id="rate" inputmode="decimal" placeholder="15,00"></div>
   <div class="saved" id="rateSaved"></div>
@@ -76,7 +80,16 @@ input{width:100%;background:transparent;border:0;color:var(--text);font-size:26p
     <div class="k">Total a pagar</div>
     <div class="v" id="siTotal">R$ 0,00</div>
   </div>
-  <div class="row" style="margin-top:12px"><button class="btn ghost" id="siReset">Zerar fichas</button></div>
+  <div class="row" style="margin-top:12px"><button class="btn ghost" id="siReset">Fechar e zerar fichas</button></div>
+</section>
+
+<section id="hi" class="panel">
+  <h1>Histórico</h1>
+  <pre id="logBox">Nenhum registro ainda.</pre>
+  <div class="row">
+    <button class="btn go" id="exp">Exportar .txt</button>
+    <button class="btn ghost" id="clr">Limpar</button>
+  </div>
 </section>
 
 <div class="credit">Criado por @luigi</div>
@@ -84,55 +97,141 @@ input{width:100%;background:transparent;border:0;color:var(--text);font-size:26p
 <script>
 (function(){
   var $=function(i){return document.getElementById(i)};
-  function load(k,d){try{var v=localStorage.getItem(k);return v===null?d:v}catch(e){return d}}
-  function save(k,v){try{localStorage.setItem(k,v);return true}catch(e){return false}}
+  var CAP=window.Capacitor;
+  var native=!!(CAP&&CAP.isNativePlatform&&CAP.isNativePlatform());
+  var FS=native&&CAP.Plugins&&CAP.Plugins.Filesystem;
+  var SH=native&&CAP.Plugins&&CAP.Plugins.Share;
+  var HEAD='Controle de Mesa - criado por @luigi\n------------------------------\n';
+
+  var S={rate:'15,00',chip:'1,00',qty:0,startedAt:0,stoppedAt:0,tab:'sn',log:''};
+
   function num(s){var n=parseFloat(String(s).replace(',','.'));return isNaN(n)||n<0?0:n}
   function brl(n){return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
   function hhmm(ms){return new Date(ms).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}
+  function stamp(){return new Date().toLocaleString('pt-BR')}
   function flash(id){var e=$(id);e.textContent='Salvo no aparelho ✓';clearTimeout(e._t);e._t=setTimeout(function(){e.textContent=''},1800)}
+  function dur(ms){var s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor(s%3600/60);return (h?h+' h ':'')+m+' min'}
+  function money(ms){return Math.round(ms/3600000*num(S.rate)*100)/100}
 
+  /* ---------- salvar (localStorage + arquivos no aparelho) ---------- */
+  function persist(){
+    var j=JSON.stringify(S);
+    try{localStorage.setItem('estado',j)}catch(e){}
+    if(FS){
+      FS.writeFile({path:'mesa-estado.json',data:j,directory:'DATA',encoding:'utf8'}).catch(function(){});
+      FS.writeFile({path:'mesa-historico.txt',data:HEAD+S.log,directory:'DATA',encoding:'utf8'}).catch(function(){});
+    }
+  }
+  function addLog(t){S.log+=stamp()+' | '+t+'\n';persist();renderLog()}
+  var timers={};
+  function later(k,fn){clearTimeout(timers[k]);timers[k]=setTimeout(fn,1500)}
+
+  /* ---------- abas ---------- */
   var tabs=document.querySelectorAll('.tab');
-  tabs.forEach(function(b){b.onclick=function(){
-    tabs.forEach(function(x){x.classList.toggle('on',x===b)});
-    document.querySelectorAll('.panel').forEach(function(p){p.classList.toggle('on',p.id===b.dataset.t)});
-    save('tab',b.dataset.t);
-  }});
-  var lastTab=load('tab','sn');
-  document.querySelector('.tab[data-t="'+lastTab+'"]').click();
+  function showTab(t){
+    tabs.forEach(function(x){x.classList.toggle('on',x.dataset.t===t)});
+    document.querySelectorAll('.panel').forEach(function(p){p.classList.toggle('on',p.id===t)});
+  }
+  tabs.forEach(function(b){b.onclick=function(){showTab(b.dataset.t);S.tab=b.dataset.t;persist()}});
 
-  $('rate').value=load('rate','15,00');
-  $('chip').value=load('chip','1,00');
-  $('qty').value=load('qty','0');
-  $('rate').oninput=function(){save('rate',this.value);flash('rateSaved');renderSn()};
-  $('chip').oninput=function(){save('chip',this.value);flash('chipSaved');renderSi()};
-
-  var startedAt=parseInt(load('startedAt','0'),10)||0;
-  var stoppedAt=parseInt(load('stoppedAt','0'),10)||0;
-  function elapsed(){if(!startedAt)return 0;return (stoppedAt||Date.now())-startedAt}
+  /* ---------- snooker ---------- */
+  function running(){return S.startedAt&&!S.stoppedAt}
+  function elapsed(){return S.startedAt?(S.stoppedAt||Date.now())-S.startedAt:0}
   function renderSn(){
     var ms=elapsed(),s=Math.floor(ms/1000);
     var h=Math.floor(s/3600),m=Math.floor(s%3600/60),sec=s%60;
     $('clock').textContent=[h,m,sec].map(function(x){return String(x).padStart(2,'0')}).join(':');
-    var running=startedAt&&!stoppedAt;
-    $('start').disabled=!!running;
-    $('stop').disabled=!running;
-    $('times').textContent=startedAt?('Início: '+hhmm(startedAt)+(stoppedAt?' · Fim: '+hhmm(stoppedAt):'')):'';
-    $('tplayed').textContent='Tempo jogado: '+(h?h+' h ':'')+m+' min';
-    $('snTotal').textContent=brl(Math.round(ms/3600000*num($('rate').value)*100)/100);
+    $('start').disabled=!!running();
+    $('stop').disabled=!running();
+    $('times').textContent=S.startedAt?('Início: '+hhmm(S.startedAt)+(S.stoppedAt?' · Fim: '+hhmm(S.stoppedAt):'')):'';
+    $('tplayed').textContent='Tempo jogado: '+dur(ms);
+    $('snTotal').textContent=brl(money(ms));
   }
-  $('start').onclick=function(){startedAt=Date.now();stoppedAt=0;save('startedAt',startedAt);save('stoppedAt',0);renderSn()};
-  $('stop').onclick=function(){stoppedAt=Date.now();save('stoppedAt',stoppedAt);renderSn()};
-  $('snReset').onclick=function(){startedAt=0;stoppedAt=0;save('startedAt',0);save('stoppedAt',0);renderSn()};
-  setInterval(renderSn,500);
-  renderSn();
+  $('start').onclick=function(){
+    S.startedAt=Date.now();S.stoppedAt=0;
+    addLog('SNOOKER INICIOU | valor da hora '+brl(num(S.rate)));renderSn();
+  };
+  $('stop').onclick=function(){
+    S.stoppedAt=Date.now();var ms=elapsed();
+    addLog('SNOOKER PAROU | início '+hhmm(S.startedAt)+' | fim '+hhmm(S.stoppedAt)+' | tempo '+dur(ms)+' | A PAGAR '+brl(money(ms)));renderSn();
+  };
+  $('snReset').onclick=function(){
+    if(running()){
+      if(!confirm('A partida está em andamento. Cancelar sem cobrar?'))return;
+      addLog('SNOOKER CANCELADO (sem cobrança)');
+    }
+    S.startedAt=0;S.stoppedAt=0;persist();renderSn();
+  };
+  $('rate').oninput=function(){
+    S.rate=this.value;persist();flash('rateSaved');renderSn();
+    later('rate',function(){addLog('VALOR DA HORA alterado para '+brl(num(S.rate)))});
+  };
 
-  function qty(){var n=parseInt($('qty').value,10);return isNaN(n)||n<0?0:n}
-  function renderSi(){$('siTotal').textContent=brl(Math.round(qty()*num($('chip').value)*100)/100)}
-  $('qty').oninput=function(){this.value=this.value.replace(/\D/g,'');save('qty',qty());renderSi()};
-  $('plus').onclick=function(){$('qty').value=qty()+1;save('qty',qty());renderSi()};
-  $('minus').onclick=function(){$('qty').value=Math.max(0,qty()-1);save('qty',qty());renderSi()};
-  $('siReset').onclick=function(){$('qty').value=0;save('qty',0);renderSi()};
-  renderSi();
+  /* ---------- sinuca ---------- */
+  function renderSi(){$('siTotal').textContent=brl(Math.round(S.qty*num(S.chip)*100)/100)}
+  function setQty(n){
+    S.qty=Math.max(0,n);$('qty').value=S.qty;persist();renderSi();
+    later('qty',function(){addLog('SINUCA fichas = '+S.qty+' | total '+brl(S.qty*num(S.chip)))});
+  }
+  $('qty').oninput=function(){this.value=this.value.replace(/\D/g,'');setQty(parseInt(this.value,10)||0)};
+  $('plus').onclick=function(){setQty(S.qty+1)};
+  $('minus').onclick=function(){setQty(S.qty-1)};
+  $('siReset').onclick=function(){
+    if(S.qty>0)addLog('SINUCA FECHOU | fichas '+S.qty+' | valor da ficha '+brl(num(S.chip))+' | TOTAL '+brl(S.qty*num(S.chip)));
+    clearTimeout(timers.qty);S.qty=0;$('qty').value=0;persist();renderSi();
+  };
+  $('chip').oninput=function(){
+    S.chip=this.value;persist();flash('chipSaved');renderSi();
+    later('chip',function(){addLog('VALOR DA FICHA alterado para '+brl(num(S.chip)))});
+  };
+
+  /* ---------- histórico ---------- */
+  function renderLog(){
+    var lines=S.log.split('\n').filter(Boolean).reverse();
+    $('logBox').textContent=lines.length?lines.join('\n'):'Nenhum registro ainda.';
+  }
+  $('clr').onclick=function(){
+    if(!confirm('Apagar todo o histórico? Exporte antes se precisar.'))return;
+    S.log='';persist();renderLog();
+  };
+  $('exp').onclick=function(){
+    var txt=HEAD+S.log;
+    if(FS&&SH){
+      FS.writeFile({path:'historico-mesa.txt',data:txt,directory:'CACHE',encoding:'utf8'})
+        .then(function(r){return SH.share({title:'Histórico da mesa',url:r.uri,dialogTitle:'Salvar ou enviar histórico'})})
+        .catch(function(e){alert('Não foi possível exportar: '+((e&&e.message)||e))});
+    }else{
+      var a=document.createElement('a');
+      a.href=URL.createObjectURL(new Blob([txt],{type:'text/plain;charset=utf-8'}));
+      a.download='historico-mesa.txt';document.body.appendChild(a);a.click();a.remove();
+    }
+  };
+
+  /* ---------- iniciar / recuperar ---------- */
+  function apply(o){for(var k in o)if(k in S)S[k]=o[k]}
+  function show(){
+    $('rate').value=S.rate;$('chip').value=S.chip;$('qty').value=S.qty;
+    showTab(S.tab||'sn');renderSn();renderSi();renderLog();
+  }
+  function resumed(){
+    if(running()){
+      var b=$('banner');
+      b.textContent='Partida retomada automaticamente: em andamento desde '+hhmm(S.startedAt)+'.';
+      b.style.display='block';
+      addLog('APP ABERTO | partida do snooker continua em andamento desde '+hhmm(S.startedAt));
+    }
+  }
+  var had=null;
+  try{had=localStorage.getItem('estado')}catch(e){}
+  if(had){try{apply(JSON.parse(had))}catch(e){}}
+  show();
+  if(had){resumed()}
+  else if(FS){
+    FS.readFile({path:'mesa-estado.json',directory:'DATA',encoding:'utf8'})
+      .then(function(r){apply(JSON.parse(r.data));persist();show();resumed()})
+      .catch(function(){});
+  }
+  setInterval(renderSn,500);
 })();
 </script>
 </body>
