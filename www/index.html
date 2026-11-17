@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1a14">
+<title>Controle de Mesa</title>
+<style>
+:root{--bg:#0f1a14;--card:#18291f;--line:#2a4034;--text:#eef5f0;--mut:#8fa89a;--acc:#3ddc84;--acc-t:#06210f;--red:#ff6b5e;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;max-width:480px;margin:0 auto;padding:16px}
+.tabs{display:flex;gap:8px;margin-bottom:16px}
+.tab{flex:1;padding:14px;border:1px solid var(--line);background:var(--card);color:var(--mut);border-radius:12px;font-size:16px;font-weight:600}
+.tab.on{background:var(--acc);color:var(--acc-t);border-color:var(--acc)}
+.panel{display:none}.panel.on{display:block}
+h1{font-size:20px;margin:0 0 14px}
+label{display:block;color:var(--mut);font-size:14px;margin-bottom:6px}
+.field{display:flex;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:0 14px}
+.field span{color:var(--mut);font-size:20px}
+input{width:100%;background:transparent;border:0;color:var(--text);font-size:26px;font-weight:700;padding:12px 8px;outline:none}
+.saved{font-size:13px;color:var(--acc);height:18px;margin:6px 0 14px}
+.clock{font-size:56px;font-weight:700;text-align:center;margin:14px 0 2px;font-variant-numeric:tabular-nums}
+.sub{text-align:center;color:var(--mut);margin-bottom:16px;min-height:22px}
+.row{display:flex;gap:10px}
+.btn{flex:1;padding:18px;border:0;border-radius:14px;font-size:18px;font-weight:700}
+.go{background:var(--acc);color:var(--acc-t)}.stop{background:var(--red);color:#2b0904}.ghost{background:var(--card);color:var(--text);border:1px solid var(--line)}
+.btn:disabled{opacity:.35}
+.result{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-top:16px;text-align:center}
+.result .k{color:var(--mut);font-size:14px}.result .v{font-size:40px;font-weight:800;color:var(--acc);margin-top:4px}
+.result .t{font-size:18px;margin-bottom:12px}
+.qty{display:flex;gap:10px;align-items:center}
+.qty .pm{width:64px;height:64px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:32px;font-weight:700}
+.credit{text-align:center;color:var(--mut);font-size:13px;margin:28px 0 8px}
+.qty input{text-align:center;background:var(--card);border:1px solid var(--line);border-radius:12px;font-size:34px}
+</style>
+</head>
+<body>
+<div class="tabs">
+  <button class="tab on" data-t="sn">Snooker</button>
+  <button class="tab" data-t="si">Sinuca</button>
+</div>
+
+<section id="sn" class="panel on">
+  <h1>Snooker · por tempo</h1>
+  <label for="rate">Valor da hora</label>
+  <div class="field"><span>R$</span><input id="rate" inputmode="decimal" placeholder="15,00"></div>
+  <div class="saved" id="rateSaved"></div>
+  <div class="clock" id="clock">00:00:00</div>
+  <div class="sub" id="times"></div>
+  <div class="row">
+    <button class="btn go" id="start">INICIAR</button>
+    <button class="btn stop" id="stop" disabled>PARAR</button>
+  </div>
+  <div class="result">
+    <div class="t" id="tplayed">Tempo jogado: 0 min</div>
+    <div class="k">A pagar</div>
+    <div class="v" id="snTotal">R$ 0,00</div>
+  </div>
+  <div class="row" style="margin-top:12px"><button class="btn ghost" id="snReset">Nova partida</button></div>
+</section>
+
+<section id="si" class="panel">
+  <h1>Sinuca pequena · por ficha</h1>
+  <label for="chip">Valor da ficha</label>
+  <div class="field"><span>R$</span><input id="chip" inputmode="decimal" placeholder="1,00"></div>
+  <div class="saved" id="chipSaved"></div>
+  <label for="qty">Fichas jogadas (digite ou use + e −)</label>
+  <div class="qty">
+    <button class="pm" id="minus">−</button>
+    <input id="qty" inputmode="numeric" placeholder="0">
+    <button class="pm" id="plus">+</button>
+  </div>
+  <div class="result">
+    <div class="k">Total a pagar</div>
+    <div class="v" id="siTotal">R$ 0,00</div>
+  </div>
+  <div class="row" style="margin-top:12px"><button class="btn ghost" id="siReset">Zerar fichas</button></div>
+</section>
+
+<div class="credit">Criado por @luigi</div>
+
+<script>
+(function(){
+  var $=function(i){return document.getElementById(i)};
+  function load(k,d){try{var v=localStorage.getItem(k);return v===null?d:v}catch(e){return d}}
+  function save(k,v){try{localStorage.setItem(k,v);return true}catch(e){return false}}
+  function num(s){var n=parseFloat(String(s).replace(',','.'));return isNaN(n)||n<0?0:n}
+  function brl(n){return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
+  function hhmm(ms){return new Date(ms).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}
+  function flash(id){var e=$(id);e.textContent='Salvo no aparelho ✓';clearTimeout(e._t);e._t=setTimeout(function(){e.textContent=''},1800)}
+
+  var tabs=document.querySelectorAll('.tab');
+  tabs.forEach(function(b){b.onclick=function(){
+    tabs.forEach(function(x){x.classList.toggle('on',x===b)});
+    document.querySelectorAll('.panel').forEach(function(p){p.classList.toggle('on',p.id===b.dataset.t)});
+    save('tab',b.dataset.t);
+  }});
+  var lastTab=load('tab','sn');
+  document.querySelector('.tab[data-t="'+lastTab+'"]').click();
+
+  $('rate').value=load('rate','15,00');
+  $('chip').value=load('chip','1,00');
+  $('qty').value=load('qty','0');
+  $('rate').oninput=function(){save('rate',this.value);flash('rateSaved');renderSn()};
+  $('chip').oninput=function(){save('chip',this.value);flash('chipSaved');renderSi()};
+
+  var startedAt=parseInt(load('startedAt','0'),10)||0;
+  var stoppedAt=parseInt(load('stoppedAt','0'),10)||0;
+  function elapsed(){if(!startedAt)return 0;return (stoppedAt||Date.now())-startedAt}
+  function renderSn(){
+    var ms=elapsed(),s=Math.floor(ms/1000);
+    var h=Math.floor(s/3600),m=Math.floor(s%3600/60),sec=s%60;
+    $('clock').textContent=[h,m,sec].map(function(x){return String(x).padStart(2,'0')}).join(':');
+    var running=startedAt&&!stoppedAt;
+    $('start').disabled=!!running;
+    $('stop').disabled=!running;
+    $('times').textContent=startedAt?('Início: '+hhmm(startedAt)+(stoppedAt?' · Fim: '+hhmm(stoppedAt):'')):'';
+    $('tplayed').textContent='Tempo jogado: '+(h?h+' h ':'')+m+' min';
+    $('snTotal').textContent=brl(Math.round(ms/3600000*num($('rate').value)*100)/100);
+  }
+  $('start').onclick=function(){startedAt=Date.now();stoppedAt=0;save('startedAt',startedAt);save('stoppedAt',0);renderSn()};
+  $('stop').onclick=function(){stoppedAt=Date.now();save('stoppedAt',stoppedAt);renderSn()};
+  $('snReset').onclick=function(){startedAt=0;stoppedAt=0;save('startedAt',0);save('stoppedAt',0);renderSn()};
+  setInterval(renderSn,500);
+  renderSn();
+
+  function qty(){var n=parseInt($('qty').value,10);return isNaN(n)||n<0?0:n}
+  function renderSi(){$('siTotal').textContent=brl(Math.round(qty()*num($('chip').value)*100)/100)}
+  $('qty').oninput=function(){this.value=this.value.replace(/\D/g,'');save('qty',qty());renderSi()};
+  $('plus').onclick=function(){$('qty').value=qty()+1;save('qty',qty());renderSi()};
+  $('minus').onclick=function(){$('qty').value=Math.max(0,qty()-1);save('qty',qty());renderSi()};
+  $('siReset').onclick=function(){$('qty').value=0;save('qty',0);renderSi()};
+  renderSi();
+})();
+</script>
+</body>
+</html>
