@@ -1,0 +1,11 @@
+{
+  "name": "mesa-de-jogo",
+  "version": "1.0.0",
+  "description": "Controle de mesa: snooker por tempo e sinuca por ficha. Criado por @luigi",
+  "private": true,
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/core": "^6.1.2"
+  }
+}
